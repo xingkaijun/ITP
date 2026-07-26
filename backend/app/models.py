@@ -141,6 +141,27 @@ class ShipProgressEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class SyncState(Base):
+    """同步游标等键值状态（如 NBINS 事件流的已处理位置）"""
+
+    __tablename__ = "sync_state"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(String(300))
+
+
+class SyncPendingEvent(Base):
+    """无法匹配到本地 ITP 条目的 NBINS 事件，等待人工处理"""
+
+    __tablename__ = "sync_pending_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    outbox_id: Mapped[int] = mapped_column(Integer, index=True)
+    payload_json: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

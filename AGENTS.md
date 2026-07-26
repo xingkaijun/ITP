@@ -170,6 +170,22 @@ Triggers: admin "Sync from NBINS" button on the admin page
 `NBINS_SYNC_INTERVAL_SECONDS` > 0. Every run writes an `audit_logs` entry
 (entity_type `sync`) with the result counts.
 
+## NBINS Inspection-Event Sync
+
+The same sync run also pulls inspection status events from NBINS
+(`GET /api/sync/events?after=<cursor>`, cursor persisted in `sync_state`).
+Each event carries `projectCode + hullNumber + itpCode + itpStatus` and is
+applied to `ship_progress` following the exact same conventions as a manual
+update (revision +1, snapshots, `ship_progress_events` row, `completed_at`
+on done) with `updated_by` = the sync actor. Manual `notes` are never
+touched. Status mapping on the NBINS side: pending/open -> in_progress,
+closed -> done, cancelled/deleted -> not_started. Application is idempotent
+(same status = skipped).
+
+Events whose project/ship/ITP code cannot be matched go to
+`sync_pending_events` (visible via `GET /api/sync/nbins/pending`, dismissible
+via `DELETE /api/sync/nbins/pending/{id}`) — they are never silently dropped.
+
 Environment variables: `NBINS_API_BASE`, `NBINS_SYNC_TOKEN` (must equal the
 NBINS `SYNC_SERVICE_TOKEN`), `NBINS_JWT_SECRET` (must equal the NBINS
 `JWT_SECRET`), optional `NBINS_SYNC_INTERVAL_SECONDS`.

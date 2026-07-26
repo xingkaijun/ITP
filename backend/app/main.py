@@ -28,9 +28,14 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine, get_db
-from .models import AuditLog, ItpItem, ItpVersionItem, Project, Ship, ShipProgress, ShipProgressEvent
+from .models import AuditLog, ItpItem, ItpVersionItem, Project, Ship, ShipProgress, ShipProgressEvent, SyncPendingEvent
 from .nbins_auth import parse_nbins_jwt
-from .nbins_sync import NbinsSyncError, apply_master_data, fetch_master_data
+from .nbins_sync import (
+    NbinsSyncError,
+    apply_master_data,
+    fetch_master_data,
+    pull_inspection_events,
+)
 from .schemas import (
     AuditLogOut,
     ImportPreview,
@@ -188,12 +193,50 @@ def login(payload: LoginRequest):
 
 @app.post("/api/sync/nbins", dependencies=[Depends(require_admin)])
 def sync_from_nbins(db: Session = Depends(get_db), current_actor: str = Depends(actor)):
-    """手动触发：从 NBINS 拉取项目/船舶主数据并合并到本地。"""
+    """手动触发：拉取 NBINS 主数据（项目/船舶）+ 检验状态事件。"""
     try:
         data = fetch_master_data()
     except NbinsSyncError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-    return apply_master_data(db, data, current_actor)
+    result = apply_master_data(db, data, current_actor)
+    try:
+        result.update(pull_inspection_events(db, actor=current_actor))
+    except NbinsSyncError as exc:
+        result["events_error"] = str(exc)
+    return result
+
+
+@app.get("/api/sync/nbins/pending", dependencies=[Depends(current_session)])
+def list_pending_sync_events(db: Session = Depends(get_db)):
+    rows = db.query(SyncPendingEvent).order_by(SyncPendingEvent.created_at.desc()).limit(200).all()
+    return [
+        {
+            "id": row.id,
+            "outbox_id": row.outbox_id,
+            "reason": row.reason,
+            "payload": json.loads(row.payload_json),
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
+@app.delete("/api/sync/nbins/pending/{pending_id}", dependencies=[Depends(require_admin)])
+def dismiss_pending_sync_event(pending_id: int, db: Session = Depends(get_db), current_actor: str = Depends(actor)):
+    row = db.get(SyncPendingEvent, pending_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Pending event not found.")
+    db.delete(row)
+    write_audit(
+        db,
+        entity_type="sync",
+        entity_id=pending_id,
+        action="dismiss_pending",
+        summary=f"Dismissed pending NBINS event #{row.outbox_id} ({row.reason})",
+        actor=current_actor,
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @app.on_event("startup")
@@ -210,6 +253,7 @@ async def start_nbins_sync_loop() -> None:
                 data = await asyncio.to_thread(fetch_master_data)
                 with SessionLocal() as db:
                     await asyncio.to_thread(apply_master_data, db, data, "nbins-sync (auto)")
+                    await asyncio.to_thread(pull_inspection_events, db, "nbins-sync (auto)")
             except Exception as exc:
                 print(f"[nbins-sync] periodic sync failed: {exc}")
 

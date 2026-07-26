@@ -308,9 +308,12 @@ function App() {
     await loadOverview();
     if (projectId) await loadProjectData(projectId, { preserveAdminExpanded: true });
     const warn = result.warnings?.length ? ` ${result.warnings.length} warning(s), see history.` : "";
+    const pending = result.events_pending ? ` ${result.events_pending} event(s) pending (unmatched ITP code).` : "";
+    const eventsError = result.events_error ? ` Events pull failed: ${result.events_error}` : "";
     setMessage(
-      `NBINS sync: projects +${result.projects_created} created, ${result.projects_linked} linked, ` +
-      `${result.projects_updated} renamed; ships +${result.ships_created} created, ${result.ships_updated} updated.${warn}`,
+      `NBINS sync: projects +${result.projects_created}/${result.projects_linked} linked; ` +
+      `ships +${result.ships_created}/${result.ships_updated} updated; ` +
+      `inspection events ${result.events_applied ?? 0} applied.${pending}${eventsError}${warn}`,
     );
   }
 
