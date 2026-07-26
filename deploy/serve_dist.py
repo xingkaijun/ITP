@@ -13,6 +13,14 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 
 class CacheAwareHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        # SPA 回退：无扩展名的路径（前端路由，如 /projects/3）一律回 index.html
+        path = self.path.split("?", 1)[0]
+        last = path.rstrip("/").rsplit("/", 1)[-1]
+        if "." not in last:
+            self.path = "/index.html"
+        super().do_GET()
+
     def end_headers(self):
         if self.path.startswith("/assets/"):
             self.send_header("Cache-Control", "public, max-age=31536000, immutable")
