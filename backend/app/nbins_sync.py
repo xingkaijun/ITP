@@ -25,6 +25,8 @@ from .services import write_audit
 EVENTS_PAGE_SIZE = 200
 ALLOWED_SYNC_STATUSES = {"not_started", "in_progress", "done"}
 EVENTS_CURSOR_KEY = "nbins_events_cursor"
+# Cloudflare 会对 Python-urllib 默认 UA 返回 1010 拒绝，必须带正常 UA
+SYNC_USER_AGENT = "Mozilla/5.0 (compatible; itp-nbins-sync/1.0)"
 
 
 class NbinsSyncError(RuntimeError):
@@ -45,7 +47,7 @@ def fetch_master_data(timeout: float = 30.0) -> dict:
     base, token = _config()
     request = urllib.request.Request(
         f"{base}/api/sync/master-data",
-        headers={"X-Sync-Token": token},
+        headers={"X-Sync-Token": token, "User-Agent": SYNC_USER_AGENT},
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -64,7 +66,7 @@ def fetch_events(after: int, limit: int = EVENTS_PAGE_SIZE, timeout: float = 30.
     base, token = _config()
     request = urllib.request.Request(
         f"{base}/api/sync/events?after={int(after)}&limit={int(limit)}",
-        headers={"X-Sync-Token": token},
+        headers={"X-Sync-Token": token, "User-Agent": SYNC_USER_AGENT},
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
