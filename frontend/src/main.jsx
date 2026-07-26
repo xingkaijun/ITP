@@ -13,6 +13,7 @@ import {
   Power,
   LogOut,
   Plus,
+  RefreshCw,
   Flag,
   RotateCcw,
   Settings,
@@ -295,6 +296,22 @@ function App() {
     await loadOverview();
     setProjectId(String(project.id));
     setMessage(`Project ${project.name} created.`);
+  }
+
+  async function syncFromNbins() {
+    setMessage("Syncing from NBINS...");
+    const result = await request("/sync/nbins", {
+      method: "POST",
+      headers: headers(authToken),
+    });
+    await loadProjects();
+    await loadOverview();
+    if (projectId) await loadProjectData(projectId, { preserveAdminExpanded: true });
+    const warn = result.warnings?.length ? ` ${result.warnings.length} warning(s), see history.` : "";
+    setMessage(
+      `NBINS sync: projects +${result.projects_created} created, ${result.projects_linked} linked, ` +
+      `${result.projects_updated} renamed; ships +${result.ships_created} created, ${result.ships_updated} updated.${warn}`,
+    );
   }
 
   async function addShip() {
@@ -915,7 +932,7 @@ function App() {
               <span>Project</span>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
                 <option value="">Select project</option>
-                {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                {projects.map((project) => <option key={project.id} value={project.id}>{project.code ? `${project.name} [${project.code}]` : project.name}</option>)}
               </select>
             </label>
           </div>
@@ -1004,13 +1021,14 @@ function App() {
               <h2>Projects</h2>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
                 <option value="">Select project</option>
-                {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                {projects.map((project) => <option key={project.id} value={project.id}>{project.code ? `${project.name} [${project.code}]` : project.name}</option>)}
               </select>
               <div className="inline-form">
                 <input placeholder="New project name" value={newProject} onChange={(event) => setNewProject(event.target.value)} />
                 <button onClick={() => createProject().catch((error) => setMessage(error.message))} title="Create project"><Plus size={16} /></button>
               </div>
               <button className="danger-button" onClick={() => deleteProject().catch((error) => setMessage(error.message))} disabled={!projectId}><Trash2 size={16} /> Delete Project</button>
+              <button onClick={() => syncFromNbins().catch((error) => setMessage(error.message))}><RefreshCw size={16} /> Sync from NBINS</button>
 
               <h2>Excel Import</h2>
               <input

@@ -21,6 +21,7 @@ class LoginResponse(BaseModel):
 
 class ProjectOut(ProjectCreate):
     id: int
+    code: str | None = None
     created_at: datetime
     updated_at: datetime
 

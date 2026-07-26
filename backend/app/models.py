@@ -12,6 +12,8 @@ class Project(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(180), unique=True, index=True)
+    # NBINS 项目编码；非空表示该项目由 NBINS 主数据同步而来
+    code: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True, default=None)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     active_itp_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

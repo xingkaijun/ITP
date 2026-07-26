@@ -153,6 +153,27 @@ Admin-only capabilities include:
 
 All users can update per-ship inspection completion status.
 
+## NBINS Master-Data Sync
+
+NBINS is the source of truth for projects and ships. `backend/app/nbins_sync.py`
+pulls `GET {NBINS_API_BASE}/api/sync/master-data` (header `X-Sync-Token:
+{NBINS_SYNC_TOKEN}`) and upserts locally:
+
+- Projects match by `projects.code` (new column, holds the NBINS project code).
+  A local project with no code but an identical name is adopted (code gets
+  set). Otherwise projects are created; archived NBINS projects are only
+  tracked if already linked. Nothing is ever deleted by sync.
+- Ships match by `(project, hull_no)`; only the name is updated.
+
+Triggers: admin "Sync from NBINS" button on the admin page
+(`POST /api/sync/nbins`), or a periodic loop when
+`NBINS_SYNC_INTERVAL_SECONDS` > 0. Every run writes an `audit_logs` entry
+(entity_type `sync`) with the result counts.
+
+Environment variables: `NBINS_API_BASE`, `NBINS_SYNC_TOKEN` (must equal the
+NBINS `SYNC_SERVICE_TOKEN`), `NBINS_JWT_SECRET` (must equal the NBINS
+`JWT_SECRET`), optional `NBINS_SYNC_INTERVAL_SECONDS`.
+
 ## Frontend Behavior Rules
 
 Main page:

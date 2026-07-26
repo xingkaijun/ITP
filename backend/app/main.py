@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -29,6 +30,7 @@ from sqlalchemy.orm import Session
 from .database import Base, SessionLocal, engine, get_db
 from .models import AuditLog, ItpItem, ItpVersionItem, Project, Ship, ShipProgress, ShipProgressEvent
 from .nbins_auth import parse_nbins_jwt
+from .nbins_sync import NbinsSyncError, apply_master_data, fetch_master_data
 from .schemas import (
     AuditLogOut,
     ImportPreview,
@@ -53,6 +55,8 @@ with engine.begin() as connection:
     project_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(projects)").fetchall()}
     if "active_itp_version_id" not in project_columns:
         connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN active_itp_version_id INTEGER")
+    if "code" not in project_columns:
+        connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN code VARCHAR(120)")
 
     columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(itp_items)").fetchall()}
     if "title_zh" not in columns:
@@ -180,6 +184,36 @@ def login(payload: LoginRequest):
     if hmac.compare_digest(payload.password, USER_PASSWORD):
         return LoginResponse(role="user", user="user", token=create_token("user", "user"))
     raise HTTPException(status_code=401, detail="Invalid password.")
+
+
+@app.post("/api/sync/nbins", dependencies=[Depends(require_admin)])
+def sync_from_nbins(db: Session = Depends(get_db), current_actor: str = Depends(actor)):
+    """手动触发：从 NBINS 拉取项目/船舶主数据并合并到本地。"""
+    try:
+        data = fetch_master_data()
+    except NbinsSyncError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return apply_master_data(db, data, current_actor)
+
+
+@app.on_event("startup")
+async def start_nbins_sync_loop() -> None:
+    # NBINS_SYNC_INTERVAL_SECONDS > 0 时开启周期同步；失败只记日志，等下一轮
+    interval = float(os.environ.get("NBINS_SYNC_INTERVAL_SECONDS", "0") or 0)
+    if interval <= 0:
+        return
+
+    async def loop() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                data = await asyncio.to_thread(fetch_master_data)
+                with SessionLocal() as db:
+                    await asyncio.to_thread(apply_master_data, db, data, "nbins-sync (auto)")
+            except Exception as exc:
+                print(f"[nbins-sync] periodic sync failed: {exc}")
+
+    asyncio.create_task(loop())
 
 
 CODE_PART_RE = re.compile(r"\d+|\D+")
