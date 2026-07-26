@@ -36,8 +36,17 @@ function headers(token, contentType = true) {
   };
 }
 
+// 模块级 token：request() 调用时实时读取，避免 React 闭包拿到过期值；
+// 登录/登出时通过 setRequestAuthToken 更新
+let currentAuthToken = "";
+function setRequestAuthToken(token) {
+  currentAuthToken = token || "";
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(`${API}${path}`, options);
+  const authHeaders = currentAuthToken ? { Authorization: `Bearer ${currentAuthToken}` } : {};
+  const merged = { ...options, headers: { ...authHeaders, ...(options.headers || {}) } };
+  const response = await fetch(`${API}${path}`, merged);
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.detail || response.statusText);
@@ -152,6 +161,7 @@ function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: loginPassword }),
     });
+    setRequestAuthToken(result.token);
     setRole(result.role);
     setUser(result.user);
     setAuthToken(result.token);
@@ -175,6 +185,7 @@ function App() {
       throw new Error(result.error || "NBINS login failed");
     }
     const nbinsUser = result.data.user;
+    setRequestAuthToken(result.data.token);
     setRole(nbinsUser.role === "admin" || nbinsUser.role === "manager" ? "admin" : "user");
     setUser(nbinsUser.displayName || nbinsUser.username);
     setAuthToken(result.data.token);
@@ -190,6 +201,7 @@ function App() {
   }
 
   function logout() {
+    setRequestAuthToken("");
     setIsLoggedIn(false);
     setAuthToken("");
     setLoginPassword("");
