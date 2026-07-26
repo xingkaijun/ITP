@@ -123,11 +123,21 @@ Keep this pattern for multi-user LAN use.
 
 ## Authentication
 
-Login is handled by the backend with a single password input on the frontend.
+Two login paths are accepted; both produce a Bearer token used on every API call.
 
-- Password matching determines role: user or admin.
-- This is still lightweight internal/demo authentication, not enterprise
-  security.
+1. NBINS account (primary): the frontend posts username+password to the NBINS
+   API (`VITE_NBINS_API_BASE`), and the backend verifies the returned HS256 JWT
+   with the shared secret `NBINS_JWT_SECRET` (must equal NBINS `JWT_SECRET`).
+   Role mapping: admin/manager -> admin, reviewer/inspector -> user. JWT
+   verification lives in `backend/app/nbins_auth.py`.
+2. Local password (fallback/emergency): the original single-password login.
+   Password matching determines role: user or admin. Leave the username field
+   empty on the login page to use it.
+
+- All read endpoints (projects, tree, progress, overview, history, PDF
+  exports) now require authentication; PDF downloads send the Authorization
+  header via fetch instead of a plain link.
+- This is still lightweight internal authentication, not enterprise security.
 - Do not commit real passwords or secrets to this file.
 
 Admin-only capabilities include:

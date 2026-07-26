@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine, get_db
 from .models import AuditLog, ItpItem, ItpVersionItem, Project, Ship, ShipProgress, ShipProgressEvent
+from .nbins_auth import parse_nbins_jwt
 from .schemas import (
     AuditLogOut,
     ImportPreview,
@@ -155,7 +156,9 @@ def current_session(authorization: str = Header(default="")) -> dict[str, str]:
     prefix = "Bearer "
     if not authorization.startswith(prefix):
         raise HTTPException(status_code=401, detail="Authentication required.")
-    session = parse_token(authorization[len(prefix) :])
+    token = authorization[len(prefix) :]
+    # 先试本地口令 token（应急后门），再试 NBINS 签发的 JWT
+    session = parse_token(token) or parse_nbins_jwt(token)
     if session is None:
         raise HTTPException(status_code=401, detail="Invalid authentication token.")
     return session
@@ -378,7 +381,7 @@ def style_export_sheet(sheet) -> None:
                 cell.fill = alternate_fill
 
 
-@app.get("/api/projects", response_model=list[ProjectOut])
+@app.get("/api/projects", response_model=list[ProjectOut], dependencies=[Depends(current_session)])
 def list_projects(db: Session = Depends(get_db)):
     return db.query(Project).order_by(Project.name).all()
 
@@ -428,7 +431,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db), current_actor
     return {"ok": True}
 
 
-@app.get("/api/projects/{project_id}/tree", response_model=list[ItpItemOut])
+@app.get("/api/projects/{project_id}/tree", response_model=list[ItpItemOut], dependencies=[Depends(current_session)])
 def get_project_tree(project_id: int, include_inactive: bool = False, db: Session = Depends(get_db)):
     query = db.query(ItpItem).filter(ItpItem.project_id == project_id)
     if not include_inactive:
@@ -810,7 +813,7 @@ async def import_apply(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/projects/{project_id}/ships", response_model=list[ShipOut])
+@app.get("/api/projects/{project_id}/ships", response_model=list[ShipOut], dependencies=[Depends(current_session)])
 def list_ships(project_id: int, db: Session = Depends(get_db)):
     return db.query(Ship).filter(Ship.project_id == project_id).order_by(Ship.hull_no).all()
 
@@ -890,7 +893,7 @@ def delete_ship(ship_id: int, db: Session = Depends(get_db), current_actor: str 
     return {"ok": True}
 
 
-@app.get("/api/ships/{ship_id}/progress", response_model=list[ShipProgressOut])
+@app.get("/api/ships/{ship_id}/progress", response_model=list[ShipProgressOut], dependencies=[Depends(current_session)])
 def get_ship_progress(ship_id: int, db: Session = Depends(get_db)):
     ship = db.get(Ship, ship_id)
     if ship is None:
@@ -1224,7 +1227,7 @@ def update_ship_progress(
     )
 
 
-@app.get("/api/history", response_model=list[AuditLogOut])
+@app.get("/api/history", response_model=list[AuditLogOut], dependencies=[Depends(current_session)])
 def history(project_id: int | None = None, limit: int = 100, db: Session = Depends(get_db)):
     if not project_id:
         return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(min(limit, 500)).all()
@@ -1261,7 +1264,7 @@ def history(project_id: int | None = None, limit: int = 100, db: Session = Depen
     return filtered[: min(limit, 500)]
 
 
-@app.get("/api/overview")
+@app.get("/api/overview", dependencies=[Depends(current_session)])
 def overview(db: Session = Depends(get_db)):
     projects = db.query(Project).order_by(Project.name).all()
     rows = []
@@ -1493,12 +1496,12 @@ def before_delivery_open_items_data(ship_id: int, db: Session) -> dict:
     return ship_open_items_data(ship_id, db, "before_delivery")
 
 
-@app.get("/api/ships/{ship_id}/unfinished-before-sea-trial")
+@app.get("/api/ships/{ship_id}/unfinished-before-sea-trial", dependencies=[Depends(current_session)])
 def unfinished_before_sea_trial(ship_id: int, db: Session = Depends(get_db)):
     return before_sea_trial_open_items_data(ship_id, db)
 
 
-@app.get("/api/ships/{ship_id}/unfinished-before-delivery")
+@app.get("/api/ships/{ship_id}/unfinished-before-delivery", dependencies=[Depends(current_session)])
 def unfinished_before_delivery(ship_id: int, db: Session = Depends(get_db)):
     return before_delivery_open_items_data(ship_id, db)
 
@@ -1791,12 +1794,12 @@ def open_items_pdf_response(data: dict) -> StreamingResponse:
     )
 
 
-@app.get("/api/ships/{ship_id}/unfinished-before-sea-trial/export.pdf")
+@app.get("/api/ships/{ship_id}/unfinished-before-sea-trial/export.pdf", dependencies=[Depends(current_session)])
 def export_unfinished_before_sea_trial_pdf(ship_id: int, db: Session = Depends(get_db)):
     return open_items_pdf_response(before_sea_trial_open_items_data(ship_id, db))
 
 
-@app.get("/api/ships/{ship_id}/unfinished-before-delivery/export.pdf")
+@app.get("/api/ships/{ship_id}/unfinished-before-delivery/export.pdf", dependencies=[Depends(current_session)])
 def export_unfinished_before_delivery_pdf(ship_id: int, db: Session = Depends(get_db)):
     return open_items_pdf_response(before_delivery_open_items_data(ship_id, db))
 

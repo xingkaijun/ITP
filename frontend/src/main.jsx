@@ -25,6 +25,8 @@ import "./styles.css";
 
 const API = "/api";
 const APP_BASE = import.meta.env.BASE_URL || "/";
+// NBINS 身份中心地址（如 https://nbins-api.example.workers.dev），留空则只能用本地口令登录
+const NBINS_API = (import.meta.env.VITE_NBINS_API_BASE || "").replace(/\/+$/, "");
 
 function headers(token, contentType = true) {
   return {
@@ -65,6 +67,7 @@ function App() {
   const [user, setUser] = useState("yard-user");
   const [authToken, setAuthToken] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [page, setPage] = useState("main");
   const [projects, setProjects] = useState([]);
@@ -155,6 +158,34 @@ function App() {
     setIsLoggedIn(true);
     setMessage("");
     setLoginPassword("");
+  }
+
+  async function loginWithNbins() {
+    if (!NBINS_API) {
+      throw new Error("NBINS login is not configured (VITE_NBINS_API_BASE). Leave username empty to use the local password.");
+    }
+    const response = await fetch(`${NBINS_API}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: loginUsername.trim(), password: loginPassword }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || "NBINS login failed");
+    }
+    const nbinsUser = result.data.user;
+    setRole(nbinsUser.role === "admin" || nbinsUser.role === "manager" ? "admin" : "user");
+    setUser(nbinsUser.displayName || nbinsUser.username);
+    setAuthToken(result.data.token);
+    setPage("main");
+    setIsLoggedIn(true);
+    setMessage("");
+    setLoginPassword("");
+  }
+
+  function submitLogin() {
+    const action = loginUsername.trim() ? loginWithNbins() : loginWithPassword();
+    action.catch((error) => setMessage(error.message));
   }
 
   function logout() {
@@ -370,14 +401,25 @@ function App() {
     window.URL.revokeObjectURL(url);
   }
 
-  function exportOpenItemsPdf(detail) {
+  async function exportOpenItemsPdf(detail) {
     const endpoint = detail.scope === "before_delivery" ? "unfinished-before-delivery" : "unfinished-before-sea-trial";
+    const response = await fetch(`${API}/ships/${detail.ship_id}/${endpoint}/export.pdf`, {
+      method: "GET",
+      headers: headers(authToken, false),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "PDF export failed");
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = `${API}/ships/${detail.ship_id}/${endpoint}/export.pdf`;
+    link.href = url;
     link.download = `${detail.hull_no} ${detail.filename_scope || detail.title}.pdf`;
     document.body.appendChild(link);
     link.click();
     link.remove();
+    window.URL.revokeObjectURL(url);
     setMessage(`Exporting PDF for ${detail.hull_no}.`);
   }
 
@@ -716,21 +758,32 @@ function App() {
           <div className="login-brand">
             <img src={`${APP_BASE}pg-logo.png`} alt="PG" />
             <h1>JN VLEC Project ITP Database</h1>
-            <p>Enter password to continue.</p>
+            <p>Sign in with your NBINS account. Leave username empty to use the local password.</p>
           </div>
           {message && <div className="login-error">{message}</div>}
           <div className="login-actions">
             <div className="admin-login">
               <input
+                type="text"
+                placeholder="NBINS username (optional)"
+                value={loginUsername}
+                autoComplete="username"
+                onChange={(event) => setLoginUsername(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") submitLogin();
+                }}
+              />
+              <input
                 type="password"
                 placeholder="Password"
                 value={loginPassword}
+                autoComplete="current-password"
                 onChange={(event) => setLoginPassword(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") loginWithPassword().catch((error) => setMessage(error.message));
+                  if (event.key === "Enter") submitLogin();
                 }}
               />
-              <button className="login-choice" onClick={() => loginWithPassword().catch((error) => setMessage(error.message))}>Login</button>
+              <button className="login-choice" onClick={submitLogin}>Login</button>
             </div>
           </div>
         </section>
@@ -828,7 +881,7 @@ function App() {
                   <span>{openItemsDetail.open} open / {openItemsDetail.total} total</span>
                   <button
                     className="soft-button compact-button"
-                    onClick={() => exportOpenItemsPdf(openItemsDetail)}
+                    onClick={() => exportOpenItemsPdf(openItemsDetail).catch((error) => setMessage(error.message))}
                   >
                     <Download size={14} /> Export PDF
                   </button>
