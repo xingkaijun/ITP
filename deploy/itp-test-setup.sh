@@ -16,7 +16,7 @@ API_PORT=8001
 WEB_PORT=8002
 TUNNEL_NAME="itp-test"
 TUNNEL_HOSTNAME="itp-test.6666996.xyz"
-NBINS_API_BASE="https://nbins-api-test.xingcf.workers.dev"
+NBINS_API_BASE="https://insdb.6666996.xyz"
 
 echo "==> 检查依赖"
 for cmd in git python3 curl; do
@@ -28,8 +28,12 @@ mkdir -p "$BASE_DIR" "$BASE_DIR/data" "$BASE_DIR/bin" "$BASE_DIR/logs"
 
 ENV_FILE="$BASE_DIR/itp-test.env"
 if [ ! -f "$ENV_FILE" ]; then
-  : "${NBINS_JWT_SECRET:?首次运行必须传入 NBINS_JWT_SECRET（与 nbins-api-test 的 JWT_SECRET 相同）}"
-  : "${NBINS_SYNC_TOKEN:?首次运行必须传入 NBINS_SYNC_TOKEN（与 nbins-api-test 的 SYNC_SERVICE_TOKEN 相同）}"
+  : "${NBINS_JWT_SECRET:?首次运行必须传入 NBINS_JWT_SECRET（与 NBINS 侧 JWT_SECRET 相同）}"
+  : "${NBINS_SYNC_TOKEN:?首次运行必须传入 NBINS_SYNC_TOKEN（与 NBINS 侧 SYNC_SERVICE_TOKEN 相同）}"
+else
+  # 升级部署：沿用 env 里已配置的 NBINS 地址，避免脚本默认值覆盖
+  EXISTING_BASE=$(grep '^NBINS_API_BASE=' "$ENV_FILE" | cut -d= -f2- || true)
+  [ -n "$EXISTING_BASE" ] && NBINS_API_BASE="$EXISTING_BASE"
 fi
 
 echo "==> 拉取代码 ($BRANCH)"
@@ -114,7 +118,7 @@ set -a; source "$BASE_DIR/itp-test.env"; set +a
 cd "$BASE_DIR/repo/backend"
 nohup "$BASE_DIR/venv/bin/python" -m uvicorn app.main:app --host 127.0.0.1 --port 8001 >> "$BASE_DIR/logs/api.log" 2>&1 &
 echo $! > "$BASE_DIR/api.pid"
-nohup python3 -m http.server 8002 --bind 127.0.0.1 --directory "$BASE_DIR/repo/frontend/dist" >> "$BASE_DIR/logs/web.log" 2>&1 &
+nohup python3 "$BASE_DIR/repo/deploy/serve_dist.py" 8002 "$BASE_DIR/repo/frontend/dist" >> "$BASE_DIR/logs/web.log" 2>&1 &
 echo $! > "$BASE_DIR/web.pid"
 nohup "$BASE_DIR/bin/cloudflared" tunnel --config "$BASE_DIR/cloudflared-config.yml" run >> "$BASE_DIR/logs/tunnel.log" 2>&1 &
 echo $! > "$BASE_DIR/tunnel.pid"
@@ -140,5 +144,5 @@ echo "==> 部署完成"
 echo "    启动：  $BASE_DIR/start.sh"
 echo "    停止：  $BASE_DIR/stop.sh"
 echo "    地址：  https://$TUNNEL_HOSTNAME"
-echo "    NBINS 账号登录：用户名 xkj（测试库，与生产密码无关）"
+echo "    NBINS 账号登录：使用 $NBINS_API_BASE 上的用户名密码"
 echo "    本地应急口令：见 $ENV_FILE"

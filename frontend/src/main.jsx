@@ -28,6 +28,8 @@ const API = "/api";
 const APP_BASE = import.meta.env.BASE_URL || "/";
 // NBINS 身份中心地址（如 https://nbins-api.example.workers.dev），留空则只能用本地口令登录
 const NBINS_API = (import.meta.env.VITE_NBINS_API_BASE || "").replace(/\/+$/, "");
+// 登录页角落显示的构建标记，用于远程排查客户端是否加载了最新前端
+const BUILD_TAG = "20260726.2";
 
 function headers(token, contentType = true) {
   return {
@@ -79,6 +81,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [useLocalLogin, setUseLocalLogin] = useState(false);
   const [page, setPage] = useState("main");
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState("");
@@ -173,7 +176,7 @@ function App() {
 
   async function loginWithNbins() {
     if (!NBINS_API) {
-      throw new Error("NBINS login is not configured (VITE_NBINS_API_BASE). Leave username empty to use the local password.");
+      throw new Error("NBINS login is not configured (VITE_NBINS_API_BASE). Use the local emergency password instead.");
     }
     const response = await fetch(`${NBINS_API}/api/auth/login`, {
       method: "POST",
@@ -196,8 +199,15 @@ function App() {
   }
 
   function submitLogin() {
-    const action = loginUsername.trim() ? loginWithNbins() : loginWithPassword();
-    action.catch((error) => setMessage(error.message));
+    if (useLocalLogin) {
+      loginWithPassword().catch((error) => setMessage(`Local login failed: ${error.message}`));
+      return;
+    }
+    if (!loginUsername.trim()) {
+      setMessage("Enter your NBINS username (or switch to the local emergency password below).");
+      return;
+    }
+    loginWithNbins().catch((error) => setMessage(`NBINS login failed: ${error.message}`));
   }
 
   function logout() {
@@ -790,24 +800,30 @@ function App() {
           <div className="login-brand">
             <img src={`${APP_BASE}pg-logo.png`} alt="PG" />
             <h1>JN VLEC Project ITP Database</h1>
-            <p>Sign in with your NBINS account. Leave username empty to use the local password.</p>
+            <p>
+              {useLocalLogin
+                ? "Local emergency login (only when NBINS is unavailable)."
+                : "Sign in with your NBINS account — same username and password as NBINS."}
+            </p>
           </div>
           {message && <div className="login-error">{message}</div>}
           <div className="login-actions">
             <div className="admin-login">
-              <input
-                type="text"
-                placeholder="NBINS username (optional)"
-                value={loginUsername}
-                autoComplete="username"
-                onChange={(event) => setLoginUsername(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") submitLogin();
-                }}
-              />
+              {!useLocalLogin && (
+                <input
+                  type="text"
+                  placeholder="NBINS username"
+                  value={loginUsername}
+                  autoComplete="username"
+                  onChange={(event) => setLoginUsername(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitLogin();
+                  }}
+                />
+              )}
               <input
                 type="password"
-                placeholder="Password"
+                placeholder={useLocalLogin ? "Local emergency password" : "NBINS password"}
                 value={loginPassword}
                 autoComplete="current-password"
                 onChange={(event) => setLoginPassword(event.target.value)}
@@ -816,6 +832,18 @@ function App() {
                 }}
               />
               <button className="login-choice" onClick={submitLogin}>Login</button>
+              <button
+                type="button"
+                className="login-switch"
+                style={{ background: "none", border: "none", color: "#8aa0b8", cursor: "pointer", fontSize: 13, padding: 4 }}
+                onClick={() => {
+                  setUseLocalLogin(!useLocalLogin);
+                  setMessage("");
+                }}
+              >
+                {useLocalLogin ? "Use NBINS account instead" : "Use local emergency password"}
+              </button>
+              <p style={{ margin: "10px 0 0", textAlign: "center", opacity: 0.45, fontSize: 11 }}>build {BUILD_TAG}</p>
             </div>
           </div>
         </section>
